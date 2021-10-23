@@ -19,6 +19,10 @@ contract WinnerTakesYield {
     }
 
     League[] public leagues;
+    
+    event DepositLeague(uint256, uint256);
+    event LeagueWinner(address, uint256, uint256);
+    event UserWithdraw(uint256, uint256);
 
     /**
      * @dev Create tournament
@@ -31,6 +35,10 @@ contract WinnerTakesYield {
         leagues.push(League(_token, _pool, 0, _endTime, false));
     }
 
+    // view function of amount of total stake in league pool 
+    function getTotalStake(uint256 leagueIndex) public view returns(uint256){
+        return leagues[leagueIndex].pot;
+    }
     /**
      * @dev Add to pool
      */
@@ -39,6 +47,8 @@ contract WinnerTakesYield {
 
         // Increase the users stake
         league.stakes[msg.sender] += amount;
+        //emit event of a deposit added to league pool 
+        emit DepositLeague(leagueIndex, amount);
         // Increase the total pot
         league.pot += amount;
 
@@ -55,6 +65,7 @@ contract WinnerTakesYield {
             address(this),
             0
         );
+        
     }
 
     /**
@@ -82,6 +93,8 @@ contract WinnerTakesYield {
 
         // Transfer the yield from WTY to the winner
         IERC20(league.token).transfer(winner, yield);
+        
+        emit LeagueWinner(winner, leagueIndex, yield);
     }
 
     /**
@@ -93,8 +106,13 @@ contract WinnerTakesYield {
         uint256 stake = league.stakes[msg.sender];
         // Set the users stake to zero
         league.stakes[msg.sender] = 0;
+        // Decresing pot if user withdraws stake early
+        league.pot -= stake;
 
         // Transfer the user their tokens back
         IERC20(league.token).transfer(msg.sender, stake);
+        
+        //emit event of withdraw initial stake to user
+        emit UserWithdraw(leagueIndex, stake);
     }
 }
