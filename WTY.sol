@@ -35,6 +35,10 @@ contract WinnerTakesYield {
         leagues.push(League(_token, _pool, 0, _endTime, false));
     }
 
+    // view function of amount of total stake in league pool 
+    function getTotalStake(uint256 leagueIndex) public view returns(uint256){
+        return leagues[leagueIndex].pot;
+    }
     /**
      * @dev Add to pool
      */
