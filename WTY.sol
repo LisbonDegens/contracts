@@ -39,6 +39,7 @@ contract WinnerTakesYield {
 
         // Increase the users stake
         league.stakes[msg.sender] += amount;
+        // Increase the total pot
         league.pot += amount;
 
         // Transfer the users tokens to us
@@ -47,7 +48,7 @@ contract WinnerTakesYield {
         // Approve the token transfer from WTY to AAVE
         IERC20(league.token).approve(league.pool, amount);
 
-        // Deposit the tokens from us to AAVE
+        // Deposit the tokens from WTY to AAVE
         ILendingPool(league.pool).deposit(
             league.token,
             amount,
@@ -63,7 +64,7 @@ contract WinnerTakesYield {
         League storage league = leagues[leagueIndex];
 
         require(block.timestamp >= league.endTime, "League time is not over");
-        require(!league.winnerAwarded, "League has already finished");
+        require(!league.winnerAwarded, "Winner has not been awarded yet");
 
         // Finish the league
         league.winnerAwarded = true;
@@ -88,8 +89,6 @@ contract WinnerTakesYield {
      */
     function withdraw(uint256 leagueIndex) public {
         League storage league = leagues[leagueIndex];
-
-        require(league.winnerAwarded, "League has not finished");
 
         uint256 stake = league.stakes[msg.sender];
         // Set the users stake to zero
