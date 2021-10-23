@@ -102,6 +102,8 @@ contract WinnerTakesYield {
         uint256 stake = league.stakes[msg.sender];
         // Set the users stake to zero
         league.stakes[msg.sender] = 0;
+        // Decresing pot if user withdraws stake early
+        league.pot -= stake;
 
         // Transfer the user their tokens back
         IERC20(league.token).transfer(msg.sender, stake);
