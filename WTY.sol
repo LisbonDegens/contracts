@@ -1,58 +1,47 @@
-// SPDX-License-Identifier: GPL-3.0
-
 pragma solidity >=0.6.12;
 
 import {ILendingPool} from "@aave/protocol-v2/contracts/interfaces/ILendingPool.sol";
 import {IERC20} from "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v3.1.0/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v3.1.0/contracts/access/Ownable.sol";
 
 /**
  * @title WinnerTakesYield
  */
-contract WinnerTakesYield {
+contract WinnerTakesYield is Ownable {
     struct League {
         address token;
+        address aToken;
         address pool;
-        uint256 endTime;
-        uint256 pot;
-        bool winnerAwarded;
+        address winner;
+        uint256 totalStake;
         mapping(address => uint256) stakes;
     }
 
+    event Deposit(uint256, uint256);
+    event WinnerSet(uint256, address);
+    event AwardRedeemed(address, uint256, uint256);
+    event Withdraw(uint256, uint256);
+
     League[] public leagues;
-    
-    event DepositLeague(uint256, uint256);
-    event LeagueWinner(address, uint256, uint256);
-    event UserWithdraw(uint256, uint256);
 
     /**
-     * @dev Create tournament
+     * @dev Create league
      */
     function createLeague(
         address _token,
-        address _pool,
-        uint256 _endTime
+        address _aToken,
+        address _pool
     ) public {
-        leagues.push(League(_token, _pool, 0, _endTime, false));
+        leagues.push(League(_token, _aToken, _pool, address(0), 0));
     }
 
-    // view function of amount of total stake in league pool 
-    function getTotalStake(uint256 leagueIndex) public view returns(uint256){
-        return leagues[leagueIndex].pot;
-    }
     /**
      * @dev Add to pool
      */
     function deposit(uint256 leagueIndex, uint256 amount) public {
         League storage league = leagues[leagueIndex];
 
-        // Increase the users stake
-        league.stakes[msg.sender] += amount;
-        //emit event of a deposit added to league pool 
-        emit DepositLeague(leagueIndex, amount);
-        // Increase the total pot
-        league.pot += amount;
-
-        // Transfer the users tokens to us
+        // Transfer the users added stake to us
         IERC20(league.token).transferFrom(msg.sender, address(this), amount);
 
         // Approve the token transfer from WTY to AAVE
@@ -65,36 +54,12 @@ contract WinnerTakesYield {
             address(this),
             0
         );
-        
-    }
 
-    /**
-     * @dev End league
-     */
-    function awardWinner(uint256 leagueIndex, address winner) public {
-        League storage league = leagues[leagueIndex];
+        // Track the amount the sender contributed
+        league.stakes[msg.sender] += amount;
+        league.totalStake += amount;
 
-        require(block.timestamp >= league.endTime, "League time is not over");
-        require(!league.winnerAwarded, "Winner has not been awarded yet");
-
-        // Finish the league
-        league.winnerAwarded = true;
-
-        // Withdraw all the tokens from AAVE to WTY
-        ILendingPool(league.pool).withdraw(
-            league.token,
-            type(uint256).max,
-            address(this)
-        );
-
-        // Calculate the yield based on the current WTY balance vs the original pot
-        uint256 yield = IERC20(league.token).balanceOf(address(this)) -
-            league.pot;
-
-        // Transfer the yield from WTY to the winner
-        IERC20(league.token).transfer(winner, yield);
-        
-        emit LeagueWinner(winner, leagueIndex, yield);
+        emit Deposit(leagueIndex, amount);
     }
 
     /**
@@ -104,15 +69,43 @@ contract WinnerTakesYield {
         League storage league = leagues[leagueIndex];
 
         uint256 stake = league.stakes[msg.sender];
-        // Set the users stake to zero
-        league.stakes[msg.sender] = 0;
-        // Decresing pot if user withdraws stake early
-        league.pot -= stake;
 
-        // Transfer the user their tokens back
-        IERC20(league.token).transfer(msg.sender, stake);
-        
-        //emit event of withdraw initial stake to user
-        emit UserWithdraw(leagueIndex, stake);
+        // Track the removed stake
+        league.stakes[msg.sender] = 0;
+        league.totalStake -= stake;
+
+        // Remove the users original stake from AAVE
+        ILendingPool(league.pool).withdraw(league.token, stake, msg.sender);
+
+        emit Withdraw(leagueIndex, stake);
+    }
+
+    function setWinner(uint256 leagueIndex, address winner) public onlyOwner {
+        League storage league = leagues[leagueIndex];
+
+        league.winner = winner;
+
+        emit WinnerSet(leagueIndex, league.winner);
+    }
+
+    /**
+     * @dev Redeem award
+     */
+    function redeemAward(uint256 leagueIndex) public {
+        League storage league = leagues[leagueIndex];
+
+        require(league.winner != address(0), "Winner has not been set yet");
+
+        uint256 reward = IERC20(league.aToken).balanceOf(address(this)) -
+            league.totalStake;
+
+        // Redeem all aTokens the contract owns for the sender, minus the supply reserved for donators
+        ILendingPool(league.pool).withdraw(league.token, reward, league.winner);
+
+        emit AwardRedeemed(league.winner, leagueIndex, reward);
+    }
+
+    function getTotalStake(uint256 leagueIndex) public view returns (uint256) {
+        return leagues[leagueIndex].totalStake;
     }
 }
